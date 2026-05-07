@@ -11,6 +11,7 @@ dependencies = [
     "loguru>=0.7.3",
     "nicegui>=3.6.1",
     "textual>=7.5.0",
+    "daq-tools @ git+https://github.com/advect-technologies/daq-tools.git@main",
 ]
 
 [dependency-groups]

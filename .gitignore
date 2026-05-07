@@ -17,3 +17,8 @@ logs/
 st-data/
 config.toml
 output/
+
+data
+daq_watch
+.daq_watch/
+daq_config.toml

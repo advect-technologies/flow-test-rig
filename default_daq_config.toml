@@ -1,0 +1,18 @@
+[inbound]
+watch_dir = ".daq_watch"
+
+[[sinks]]
+name = "local_json_archive"
+type = "file"
+config.output_path = "output/records/json-data"
+config.format = "jsonl" 
+config.startup = true
+config.max_size_mb = 10
+
+[[sinks]]
+name = "local_csv_archive"
+type = "file"
+config.output_path = "output/records/csv-data"
+config.format = "csv" 
+config.startup = true
+config.max_size_mb = 10

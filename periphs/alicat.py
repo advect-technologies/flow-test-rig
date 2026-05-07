@@ -126,7 +126,7 @@ class AlicatMassFlowDF(AlicatBaseDF):
                 mflow=parts[4] if len(parts) > 4 and parts[4] != "" else None,
                 setpoint=parts[5] if len(parts) > 5 and parts[5] != "" else None,
                 gas=parts[6] if len(parts) > 7 else None,
-                status=parts[7] if len(parts) > 8 else None,
+                status=parts[7] if len(parts) >= 8 else None,
             )
 
     @classmethod
