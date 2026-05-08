@@ -99,7 +99,8 @@ class AlicatConfig:
     serial: Optional[SerialConfig] = None  # device-specific override
 
     def __post_init__(self):
-        self.pressure_unit = getattr(alicat.AlicatPressureUnits,self.pressure_unit.upper())
+        if not isinstance(self.pressure_unit,(int,alicat.AlicatPressureUnits)):
+            self.pressure_unit = getattr(alicat.AlicatPressureUnits,self.pressure_unit.upper())
         self.full_scale_min = alicat.convert_to_pa(self.full_scale_min,
                                                    self.pressure_unit)
         self.full_scale_max = alicat.convert_to_pa(self.full_scale_max,
