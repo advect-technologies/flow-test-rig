@@ -1,8 +1,10 @@
 import json
 import datetime as dt
 import time
+import string
+from secrets import choice
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Literal, Union, Any
+from typing import Optional, Literal, Union, Any, ClassVar, List, Dict
 from periphs import alicat, scale
 from enum import StrEnum
 from loguru import logger
@@ -13,6 +15,112 @@ from socket import gethostname
 # Optional: make this configurable later via TestRigConfig
 DEFAULT_WATCH_DIR = Path("daq_watch")
 
+def generate_id(length: int = 4) -> str:
+    """Generates a random alphanumeric string."""
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(choice(alphabet) for _ in range(length))
+
+@dataclass(kw_only=True)
+class TestStage:
+    duration_h: float
+    TYPE: ClassVar[str] = 'BASE'
+
+    def __post_init__(self):
+        self._min_duration_s = 60
+        self._min_flow_step = 0.2   ## add units
+
+        # clamp at minimum duration
+        self._duration_s = max(self.duration_h * 3600,self._min_duration_s)
+
+@dataclass(kw_only=True)
+class TestStageStable(TestStage):
+    target: float
+    TYPE: ClassVar[str] = 'STABLE'
+
+@dataclass(kw_only=True)
+class TestStageRamp(TestStage):
+    target_start: float
+    target_stop: float
+    targets: List[float] = field(default=None,init=False)
+    times: List[float] = field(default=None,init=False)
+    time_step_s: float = field(default=None,init=False)
+    TYPE: ClassVar[str] = 'RAMP'
+
+    def __post_init__(self):
+        super().__post_init__()
+    
+        n_flow = abs(self.target_stop - self.target_start) / self._min_flow_step 
+        n_time = self._duration_s / self._min_duration_s
+        
+        self._n = int(min(n_flow,n_time))
+        if self._n <= 1:
+            self.time_step_s = self._duration_s
+            flow_step = self.target_stop - self.target_start 
+        else:
+            self.time_step_s = int(self._duration_s / self._n)
+            flow_step = (self.target_stop - self.target_start) / (self._n-1)
+
+        self.targets = [round(self.target_start + i*flow_step,1) for i in range(self._n+1)]
+        self.targets[-1] = self.target_stop
+        self.times = [round(i*self.time_step_s,1) for i in range(self._n+1)]
+        
+@dataclass
+class TestProtocol:
+    stages: list[TestStage]
+    name: Optional[str] = ""
+
+    @classmethod
+    def from_json(cls,
+                  path:Path = Path('protocols/default-protocol.json'),
+                  name:str = '') -> TestProtocol:
+        path = Path(path)
+        if not path.exists(): RuntimeError(f'{path.absolute()} does not exist')
+        
+        data = json.loads(path.read_text())
+        if name == '': name = path.stem
+
+        return cls.loader(data,name=name)
+
+    @classmethod
+    def loader(cls,stage_list: List[Dict], name:str) -> TestProtocol:
+        stages: List[TestStage] = [cls._resolve_stage(s,i) for i,s in enumerate(stage_list)]
+        return cls(stages=stages, name=name)
+
+    @classmethod
+    def _resolve_stage(cls,stage: Dict, index: int):
+        
+        STAGE_MAP = {c.TYPE:c for c in TestStage.__subclasses__()}
+
+        stage_type = stage.pop('type')
+
+        if (stage_type is None) or (not isinstance(stage_type,str)):
+            raise RuntimeError(f'No type defined for stage {index}')
+        
+        c = STAGE_MAP.get(stage_type.upper())
+        
+        if c is None:
+            raise RuntimeError(f'Invalid stage type for stage {index}')
+        
+        return c(**stage)
+
+@dataclass
+class FlowTestReport:
+    current_stage: int
+    total_stages: int
+    run_time: float
+    remaining_time: float
+
+@dataclass
+class FlowTest:
+    protocol: TestProtocol
+    station: str
+    test_id: Optional[str] = "" 
+    create_time: Optional[int] = field(default_factory=time.time)
+    
+    def __post_init__(self):
+        if self.test_id == '':
+            self.test_id =  f'{self.station}-{int(self.create_time)}-{generate_id(4)}'
+        
 @dataclass(kw_only=True)
 class TestRigDF:
     time: float = field(
@@ -159,8 +267,12 @@ class EventNames(StrEnum):
     CHANGE_SETPOINT = 'change_setpoint'
     TARE_SCALE = 'tare_scale'
     STOP_BUTTON = 'stop_button'
+    START_BUTTON = 'start_button'
     NULL_EVENT = 'null_event'
     STATE_CHANGE = 'state_change'
+    TEST_FINISH = 'test_finish'
+    TEST_CANCEL = 'test_cancel'
+    TEST_CRASH = 'test_crash'
 
 class States(StrEnum):
     IDLE = 'idle'
@@ -190,6 +302,26 @@ class Event:
 @dataclass(kw_only=True)
 class StopButtonEvent(Event):
     name: EventNames = EventNames.STOP_BUTTON
+    retry:bool = True
+
+@dataclass(kw_only=True)
+class TestFinish(Event):
+    name: EventNames = EventNames.TEST_FINISH
+    retry:bool = True
+
+@dataclass(kw_only=True)
+class TestCancel(Event):
+    name: EventNames = EventNames.TEST_CANCEL
+    retry:bool = True
+
+@dataclass(kw_only=True)
+class TestCrash(Event):
+    name: EventNames = EventNames.TEST_CRASH
+    retry:bool = True
+
+@dataclass(kw_only=True)
+class StartButtonEvent(Event):
+    name: EventNames = EventNames.START_BUTTON
     retry:bool = True
 
 @dataclass(kw_only=True)
