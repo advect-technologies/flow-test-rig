@@ -32,8 +32,8 @@ async def event_handler(test_rig:TestRig,
 
                 case models.EventNames.STATE_CHANGE:
                     if event.new_state == test_rig.state:
-                        logger.debug(f'Already in state {event.new_state}, ignore')
-                        return
+                        logger.info(f'Already in state {event.new_state}, ignore')
+                        continue
 
                     logger.info(f'Entering state "{event.new_state}"')
                     if event.new_state == models.States.FAULT: 
@@ -71,6 +71,10 @@ async def event_handler(test_rig:TestRig,
                     logger.error('Test Crashed')
                     await event_q.put(models.StateChangeEvent(new_state=models.States.FAULT))
 
+                case models.EventNames.METADATA_UPDATE:
+                    logger.info(f'Metadata Update received {event.meta}')
+                    test_rig.user_meta = event.meta
+
                 case models.EventNames.CHANGE_SETPOINT:
                     logger.info(f'Changing setpoint to {event.value}')
                     status = await test_rig.change_setpoint(event.value)
@@ -78,6 +82,14 @@ async def event_handler(test_rig:TestRig,
                 case models.EventNames.TARE_SCALE:
                     logger.info(f'Zeroing the Scale')
                     status = await test_rig.zero_scale()
+
+                case models.EventNames.PROTOCOL_CHANGE:
+                    if event.file and event.file.exists():
+                        test_rig.test_protocol_filename = event.file
+                        logger.success(f"✅ Loaded protocol: {event.file.name}")
+                        # Optional: auto-reload or notify
+                    else:
+                        logger.error(f"Protocol file not found: {event.file}")
 
                 case _:
                     logger.warning('Unhandled event')
@@ -166,14 +178,24 @@ class TestHelper:
         self.start_time:float = time.time()
         self.stage_num = 0
         self.stage_total = len(test.protocol.stages) if test else 0
-        
-    def metrics(self) -> dict:
+        self.total_duration = self.resolve_total_duration()
+
+    def resolve_total_duration(self) -> int|None:
+        if self.test is None: return None
+        try:
+            return sum([stage._duration_s for stage in self.test.protocol.stages])
+        except Exception as ex:
+            logger.warning('unable to calculate total test duration')
+            return None
+
+    def flatten(self) -> dict:
         if self.test is None: return
         return dict(
             name = self.test.protocol.name,
             current_stage = self.stage_num,
             stage_total = self.stage_total,
-            run_time = time.time() - self.start_time
+            run_time = int(time.time() - self.start_time),
+            total_duration = self.total_duration
         )
 
 class TestRig:
@@ -192,9 +214,10 @@ class TestRig:
         self._state = models.States.IDLE
 
         self.test_q = asyncio.Queue()
-        self.test_helper:TestHelper = TestHelper()
         self.state_change:asyncio.Event = asyncio.Event()
+        self.test_helper:TestHelper = TestHelper()
         self.test_protocol_filename:Path = Path('protocols','default-protocol.json')
+        self.user_meta = models.UserMetadata()
 
         try:
             if config.mock:
@@ -313,6 +336,7 @@ class TestRig:
             low_dp_data = await self.low_dp.fetch_data()
             high_dp_data = await self.high_dp.fetch_data()
             self._metrics = models.TestRigDF(
+                station = self.config.station,
                 mass=mass_data,
                 flow=flow_data,
                 low_dp=low_dp_data,
@@ -321,10 +345,12 @@ class TestRig:
         except Exception as e:
             logger.error(f'Error in update data task: {e}')
 
-    async def report_metrics(self):
-        print(self._metrics.flatten())
-        pass
-    
+    def fetch_flat_test_status(self) -> dict:
+        if not self.state == models.States.ACTIVE: return {}
+
+        test_data = self.test_helper.flatten()
+        return {"station":self.config.station,**test_data}
+
     def fetch_flat_metrics(self) -> dict:
         return self._metrics.flatten()
 
@@ -355,9 +381,9 @@ class TestRig:
 
     async def load_test(self) -> models.FlowTest:
         protocol = models.TestProtocol.from_json(self.test_protocol_filename)
-        station = 'test'
+        metadata = models.TestMetadata(station=self.config.station,**self.user_meta.to_dict())
 
-        return models.FlowTest(protocol=protocol,station=station)
+        return models.FlowTest(protocol=protocol,metadata=metadata)
 
     async def run_test(self,event_q:asyncio.Queue):
         test = await self.load_test()
@@ -384,7 +410,8 @@ class TestRig:
                         if time.time() - target_start_time >= time_step:
                             break
                         else:
-                            logger.info(f'{int(time.time()-target_start_time)}s of {time_step}s spent at target')
+                            # logger.debug(f'{int(time.time()-target_start_time)}s of {time_step}s spent at target')
+                            # logger.info(self.test_helper.flatten())
                             await asyncio.sleep(1)
 
                     if self.state != models.States.ACTIVE:
@@ -393,6 +420,7 @@ class TestRig:
             event = models.TestFinish()
             await event_q.put(event)
         except TestIncompleteError:
+            logger.warning('Test, leaving test loop')
             event = models.TestCancel()
             await event_q.put(event)
         except asyncio.CancelledError:
@@ -401,3 +429,5 @@ class TestRig:
         except Exception as e:
             event = models.TestCrash()
             await event_q.put(event)
+        finally:
+            self.test_helper = TestHelper()

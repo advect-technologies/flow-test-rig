@@ -10,7 +10,7 @@ dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "nicegui>=3.6.1",
-    "textual>=7.5.0",
+    "textual>=8.2.5",
 ]
 
 [dependency-groups]

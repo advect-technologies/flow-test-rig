@@ -103,26 +103,47 @@ class TestProtocol:
         
         return c(**stage)
 
-@dataclass
-class FlowTestReport:
-    current_stage: int
-    total_stages: int
-    run_time: float
-    remaining_time: float
+@dataclass(kw_only=True)
+class TestMetadata:
+    test_id: str = ""
+    station:str = ""
+    height: float|None = None
+    diameter: float|None = None
+    gas: str = "Air"
+    notes: str = ""
+    protocol_name: str = ""              # populated from selected file
+    start_time: float = field(default_factory=time.time)
+    protocol_file: Path | None = None
+
+    def __post_init__(self):
+            if self.test_id == '':
+                self.test_id =  f'{self.station}-{int(self.start_time)}-{generate_id(4)}'
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        if self.protocol_file:
+            d["protocol_file"] = str(self.protocol_file)        
+        return d
+
+@dataclass(kw_only=True)
+class UserMetadata:
+    height: float = 0.0
+    diameter: float = 0.0
+    gas: str = "Air"
+    notes: str = ""
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
 
 @dataclass
 class FlowTest:
     protocol: TestProtocol
-    station: str
-    test_id: Optional[str] = "" 
     create_time: Optional[int] = field(default_factory=time.time)
-    
-    def __post_init__(self):
-        if self.test_id == '':
-            self.test_id =  f'{self.station}-{int(self.create_time)}-{generate_id(4)}'
-        
+    metadata: TestMetadata = field(default_factory=TestMetadata)
+            
 @dataclass(kw_only=True)
 class TestRigDF:
+    station: str
     time: float = field(
         default_factory=lambda:time.time()
         )    
@@ -137,7 +158,7 @@ class TestRigDF:
         low_dp = self.low_dp.flatten(prefix='low_dp',exclude=['time','unit_id']) if self.low_dp else {}
         high_dp = self.high_dp.flatten(prefix='high_dp',exclude=['time','unit_id']) if self.high_dp else {}
         timestamp = dt.datetime.fromtimestamp(self.time).isoformat(timespec='seconds')
-        return {'time':timestamp,**mass,**flow,**low_dp,**high_dp}
+        return {'station':self.station.title(),'time':timestamp,**mass,**flow,**low_dp,**high_dp}
 
     def to_data_points(self,
                        measurement:str = 'flow-test_rig',
@@ -163,10 +184,12 @@ class TestRigDF:
                 tags["id"] = gethostname()
             else:
                 tags={"id": gethostname()}
+            
+            tags['station'] = self.station
 
             point = DataPoint(
                 time=self.time,
-                measurement=measurement,           # ← single measurement name
+                measurement=measurement,                 # ← single measurement name
                 tags = tags,
                 fields=flat                                # all mass + flow + low_dp + high_dp fields
             )
@@ -242,6 +265,7 @@ class DaqConfig:
 class TestRigConfig:
     """Complete test rig hardware configuration."""
     mock: bool
+    station: str
     mass: ScaleConfig
     flow: FlowControlConfig
     high_dp: DiffPressConfig
@@ -273,6 +297,8 @@ class EventNames(StrEnum):
     TEST_FINISH = 'test_finish'
     TEST_CANCEL = 'test_cancel'
     TEST_CRASH = 'test_crash'
+    PROTOCOL_CHANGE = 'protocol_change'
+    METADATA_UPDATE = 'metadata_update'
 
 class States(StrEnum):
     IDLE = 'idle'
@@ -298,7 +324,12 @@ class Event:
         
         if cl := [c for c in Event.__subclasses__() if c.name == data.get('name')]:
             return cl[0](**data)
-        
+
+@dataclass(kw_only=True)
+class ProtocolChangedEvent(Event):
+    name: EventNames = EventNames.PROTOCOL_CHANGE
+    file: Path        
+
 @dataclass(kw_only=True)
 class StopButtonEvent(Event):
     name: EventNames = EventNames.STOP_BUTTON
@@ -341,3 +372,8 @@ class NullEvent(Event):
 class StateChangeEvent(Event):
     new_state: States
     name: EventNames = EventNames.STATE_CHANGE
+
+@dataclass(kw_only=True)
+class MetadataUpdateEvent(Event):
+    name: EventNames = EventNames.METADATA_UPDATE
+    meta: UserMetadata
