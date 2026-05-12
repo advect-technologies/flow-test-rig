@@ -1,0 +1,18 @@
+[
+    {
+        "type": "stable",
+        "target": 15.0,
+        "duration_m":5 
+    },
+    {
+        "type": "stable",
+        "target": 16.0,
+        "duration_m": 5 
+    },
+    {
+        "type": "ramp",
+        "target_start": 16.0,
+        "target_stop": 18,
+        "duration_h": 2  
+    }            
+]

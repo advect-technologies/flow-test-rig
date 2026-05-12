@@ -118,3 +118,16 @@ Static.h2 {
 #metadata-panel Input, #metadata-panel Select {
   width: 100%;
 }
+
+#progress-display {
+  height: auto;
+  min-height: 7;
+  padding: 1 2;
+  background: $boost;
+  border: solid $primary;
+  text-style: bold;
+}
+#test-progress-bar {
+  margin-top: 1;
+  height: 2;
+}

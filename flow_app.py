@@ -9,10 +9,10 @@ if sys.platform == 'win32':
 
 
 from textual.app import App, ComposeResult, on
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, Center, Middle
 from textual.widgets import (
     Header, Footer, Button, Input, Label, Static, DataTable, Select, RichLog,
-    TabbedContent, TabPane
+    TabbedContent, TabPane, ProgressBar
 )
 from textual.reactive import reactive
 from textual.message import Message
@@ -24,19 +24,31 @@ import machine
 from loguru import logger
 from pathlib import Path
 
+def format_duration(seconds: float) -> str:
+    """Return human-friendly duration (s / min / h)"""
+    if seconds < 300:           # < 5 minutes
+        return f"{int(seconds)}s"
+    elif seconds < 3600:        # < 1 hour
+        minutes = int(seconds / 60)
+        return f"{minutes}m"
+    else:
+        hours = int(seconds / 3600)
+        minutes = int((seconds % 3600) / 60)
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+
 # Shared globals
 test_rig = None
 test_rig_event_q: asyncio.Queue = asyncio.Queue()
 
 class MetricsUpdated(Message):
-    def __init__(self, metrics: dict):
+    def __init__(self):
         super().__init__()
-        self.metrics = metrics
 
 class FlowTestApp(App):
 
     CSS_PATH = "flow_app.tcss"
     metrics_table_data = reactive({}, layout=True, repaint=True)
+    test_status_data = reactive({}, layout=True, repaint=True)
     current_state = reactive(RigStates.IDLE)   
 
     def _scan_protocols(self) -> list[tuple[str, Path]]:
@@ -57,9 +69,19 @@ class FlowTestApp(App):
             with TabPane("🔴 Live", id="live"):
                 with Horizontal():
                     with Vertical(classes="panel"):
-                        yield Static("Live Metrics", classes="h2")
-                        yield DataTable(id="metrics-table")
-                    
+                        with Vertical():
+                            yield Static("Live Metrics", classes="h2")
+                            yield DataTable(id="metrics-table")
+                        with Vertical():
+                            yield Static("📊 Test Progress", classes="h2")
+                            self.progress_static = Static("🟡 No active test", 
+                                    id="progress-display", 
+                                    markup=True)
+                            yield self.progress_static
+                            with Center():
+                                self.progress_bar = ProgressBar(id="test-progress-bar",total=100,show_eta=False)
+                                yield self.progress_bar
+
                     with Vertical(classes="panel"):
                         yield Static("Recent Log", classes="h2")
                         yield RichLog(id="log", markup=True, wrap=True)
@@ -123,7 +145,6 @@ class FlowTestApp(App):
                             yield Button("Send Setpoint", id="send_setpoint", variant="primary")
                             yield Button("Tare Scale", id="tare_scale", variant="warning")
 
-
         yield Footer()
 
     def on_mount(self) -> None:
@@ -149,15 +170,12 @@ class FlowTestApp(App):
         self.run_worker(self.run_flow_app, exclusive=True)
         self.run_worker(self._state_watcher())
 
-    def post_metrics_update(self, metrics: dict):
-        self.post_message(MetricsUpdated(metrics))
-
     async def run_flow_app(self):
         await machine.flow_tasks(
             test_rig,
             self.stop_flag,
             test_rig_event_q,
-            on_metrics_update=self.post_metrics_update
+            on_metrics_update=lambda: self.post_message(MetricsUpdated())
         )
 
     async def _state_watcher(self):
@@ -181,6 +199,29 @@ class FlowTestApp(App):
                 unit = ""
             val_str = f"{value:.4g}" if isinstance(value, (int, float)) else str(value)
             table.add_row(param, val_str, unit)
+
+    def watch_test_status_data(self, status:dict):
+        progress_msg = self.query_one('#progress-display')
+        progress_bar = self.query_one(ProgressBar)
+
+        if not status:
+            progress_msg.update("🟡 No active test")
+            progress_bar.progress = 0
+            return
+    
+        stage_info = f"Stage {status.get('current_stage', '?')}/{status.get('stage_total', '?')}"
+        elapsed = status.get('run_time', 0)
+        total = status.get('total_duration', 0) or 1
+        percent = int((elapsed / total) * 100) if total > 0 else 0
+        remaining = max(0.0, total - elapsed)
+
+        lines=(f'🟢 [bold]{status.get('name', 'Test')}[/bold] — {stage_info}',   
+                f'⏱️  {format_duration(elapsed)} / {format_duration(total)}   •   ⏳ {format_duration(remaining)} remaining')
+        text = '\n'.join(lines)
+
+        progress_msg.update(text)
+        progress_bar.update(progress=percent)
+
 
     def watch_current_state(self):
         """Reactive watcher for test_rig.state"""
@@ -250,9 +291,9 @@ class FlowTestApp(App):
         self._send_metadata_update()
 
     @on(MetricsUpdated)
-    def handle_metrics_update(self, event: MetricsUpdated):
-        self.metrics_table_data = event.metrics
-
+    def handle_metrics_update(self):
+        self.metrics_table_data = test_rig.fetch_flat_metrics()
+        self.test_status_data = test_rig.fetch_flat_test_status()
 
     # Button handlers (same as before)
     @on(Button.Pressed, "#start_test")

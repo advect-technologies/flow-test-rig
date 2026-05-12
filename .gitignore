@@ -22,4 +22,9 @@ data
 daq_watch
 .daq_watch/
 daq_config.toml
-protocols/
+
+# Ignore everything in the protocols directory
+protocols/*
+
+# But don't ignore the specific JSON file
+!protocols/example-protocol.json

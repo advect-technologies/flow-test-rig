@@ -107,7 +107,7 @@ async def event_handler(test_rig:TestRig,
 async def flow_tasks(test_rig: TestRig,
                      stop_flag: asyncio.Event,
                      test_rig_event_q: asyncio.Queue,
-                     on_metrics_update = None,
+                     on_metrics_update = lambda: None,
                      ):
     print("Hello from st-test-rig!")
     metrics_updated_flag = asyncio.Event()
@@ -125,9 +125,8 @@ async def flow_tasks(test_rig: TestRig,
     async def update_metrics_loop():
         while True:
             await test_rig.update_metrics()
-            metrics_updated_flag.set()            
-            if on_metrics_update is not None:
-                on_metrics_update(test_rig.fetch_flat_metrics())
+            metrics_updated_flag.set()   
+            on_metrics_update()
             await asyncio.sleep(1)
     
     async def report_metrics_loop():
@@ -189,7 +188,7 @@ class TestHelper:
             return None
 
     def flatten(self) -> dict:
-        if self.test is None: return
+        if self.test is None: return {}
         return dict(
             name = self.test.protocol.name,
             current_stage = self.stage_num,
@@ -216,7 +215,7 @@ class TestRig:
         self.test_q = asyncio.Queue()
         self.state_change:asyncio.Event = asyncio.Event()
         self.test_helper:TestHelper = TestHelper()
-        self.test_protocol_filename:Path = Path('protocols','default-protocol.json')
+        self.test_protocol_filename:Path = Path('protocols','example-protocol.json')
         self.user_meta = models.UserMetadata()
 
         try:

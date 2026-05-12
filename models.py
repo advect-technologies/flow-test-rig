@@ -22,15 +22,23 @@ def generate_id(length: int = 4) -> str:
 
 @dataclass(kw_only=True)
 class TestStage:
-    duration_h: float
+    duration_h: Optional[float|None] = None
+    duration_m: Optional[float|None] = None  
     TYPE: ClassVar[str] = 'BASE'
 
     def __post_init__(self):
         self._min_duration_s = 60
         self._min_flow_step = 0.2   ## add units
 
-        # clamp at minimum duration
-        self._duration_s = max(self.duration_h * 3600,self._min_duration_s)
+        if (self.duration_h is None) and (self.duration_m is None):
+            raise RuntimeError('At most one of duration_h or duraion_m must be defined')
+        elif (self.duration_h is not None) and (self.duration_m is not None):
+            raise RuntimeError('At most one of duration_h or duraion_m must be defined')
+        elif self.duration_h is not None:
+            # clamp at minimum duration
+            self._duration_s = max(self.duration_h * 3600,self._min_duration_s)
+        else:
+            self._duration_s = max(self.duration_m * 60, self._min_duration_s)
 
 @dataclass(kw_only=True)
 class TestStageStable(TestStage):
@@ -71,7 +79,7 @@ class TestProtocol:
 
     @classmethod
     def from_json(cls,
-                  path:Path = Path('protocols/default-protocol.json'),
+                  path:Path = Path('protocols/example-protocol.json'),
                   name:str = '') -> TestProtocol:
         path = Path(path)
         if not path.exists(): RuntimeError(f'{path.absolute()} does not exist')
@@ -170,8 +178,8 @@ class TestRigDF:
             Easy to split later if needed.
             """
 
-            # Flatten everything into one big fields dict (this is what you asked for)
-            flat = self.flatten()                     # reuses your existing method
+            # Flatten everything into one big fields dict
+            flat = self.flatten()                    
 
             # Optional: clean up the 'time' key if you don't want it duplicated
             flat.pop('time', None)
