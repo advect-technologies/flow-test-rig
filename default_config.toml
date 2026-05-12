@@ -1,4 +1,5 @@
 mock = true   # If true, program generate fake serial data
+station = "dev-station"
 
 [daq]
 watch-dir = ".daq_watch"

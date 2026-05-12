@@ -5,12 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "aiomqtt>=2.5.1",
     "aioserial>=1.3.1",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "nicegui>=3.6.1",
-    "textual>=7.5.0",
-    "daq-tools @ git+https://github.com/advect-technologies/daq-tools.git@main",
+    "textual>=8.2.5",
 ]
 
 [dependency-groups]
