@@ -119,7 +119,6 @@ class TestMetadata:
     diameter: float|None = None
     gas: str = "Air"
     notes: str = ""
-    protocol_name: str = ""              # populated from selected file
     start_time: float = field(default_factory=time.time)
     protocol_file: Path | None = None
 
@@ -132,6 +131,29 @@ class TestMetadata:
         if self.protocol_file:
             d["protocol_file"] = str(self.protocol_file)        
         return d
+    
+    def to_data_points(self,
+                     measurement:str = 'flow_test_rig_meta',
+                     base_tags: dict | None = {}
+                     ) -> list[DataPoint]:
+        
+        flat = self.to_dict()
+        tags = dict(test_id=self.test_id,
+                    station=self.station
+                    )
+        if isinstance(base_tags,dict):
+            tags.update(base_tags)
+
+        for k,v in tags.items(): flat.pop(k,None)
+
+
+        point = DataPoint(
+            measurement=measurement,                   # ← single measurement name
+            tags = tags,
+            fields=flat                                # all mass + flow + low_dp + high_dp fields
+        )
+        return [point]
+
 
 @dataclass(kw_only=True)
 class UserMetadata:
@@ -151,6 +173,7 @@ class FlowTest:
             
 @dataclass(kw_only=True)
 class TestRigDF:
+    test_id: str = None
     station: str
     time: float = field(
         default_factory=lambda:time.time()
@@ -183,6 +206,7 @@ class TestRigDF:
 
             # Optional: clean up the 'time' key if you don't want it duplicated
             flat.pop('time', None)
+            flat.pop('station',None)
 
             if flat is None:
                 return []
@@ -195,9 +219,12 @@ class TestRigDF:
             
             tags['station'] = self.station
 
+            if self.test_id is not None:
+                tags['test_id'] = self.test_id
+
             point = DataPoint(
                 time=self.time,
-                measurement=measurement,                 # ← single measurement name
+                measurement=measurement,                   # ← single measurement name
                 tags = tags,
                 fields=flat                                # all mass + flow + low_dp + high_dp fields
             )
@@ -265,6 +292,7 @@ class DaqBufferConfig:
 class DaqConfig:
     watch_dir: Path = field(default_factory=lambda: Path(".daq_watch"))
     measurement: str = "flow_test_rig"
+    metadata_measurement: str = "flow_test_rig_meta"
     sample_period_s: int = 10
     base_tags: dict[str,Any] = field(default_factory=dict)
     buffer: DaqBufferConfig = field(default_factory=DaqBufferConfig)

@@ -2,7 +2,7 @@ from pathlib import Path
 import asyncio
 import time
 from loguru import logger
-from models import TestRigDF, DaqConfig
+from models import TestRigDF, DaqConfig, TestMetadata
 
 
 class DaqJsonlWriter:
@@ -31,12 +31,16 @@ class DaqJsonlWriter:
         logger.info(f"DAQ buffered writer initialized → watch_dir={self.watch_dir}, "
                    f"max_buffer={self.max_buffer_size}, max_age={self.max_age_seconds}s")
 
-    async def write(self, record: TestRigDF) -> None:
-        """Add one TestRigDF record (as DataPoint lines) to the buffer.
+    async def write(self, record: TestRigDF|TestMetadata) -> None:
+        """Add one TestRigDF or TestMetadata record (as DataPoint lines) to the buffer.
         Dump to file if buffer is full or too old.
         """
         try:
-            points = record.to_data_points(self.config.measurement,self.config.base_tags)
+            if isinstance(record,TestMetadata):
+                logger.info('Received metadata record')
+                points = record.to_data_points(self.config.metadata_measurement,self.config.base_tags)
+            else:
+                points = record.to_data_points(self.config.measurement,self.config.base_tags)
 
             new_lines = [p.to_json() + "\n" for p in points]
 
@@ -55,6 +59,8 @@ class DaqJsonlWriter:
 
         except Exception as e:
             logger.exception(f"Error writing record to DAQ buffer: {e}")
+
+
 
     async def _dump_buffer(self) -> None:
         """Atomically write buffer to a new .jsonl file and clear it."""

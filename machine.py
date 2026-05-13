@@ -120,7 +120,7 @@ async def flow_tasks(test_rig: TestRig,
 
             if test_rig.state == models.States.ACTIVE:
                 logger.info('Starting Test')
-                await test_rig.run_test(event_q=test_rig_event_q)
+                await test_rig.run_test(event_q=test_rig_event_q,daq_writer=daq_writer)
 
     async def update_metrics_loop():
         while True:
@@ -334,7 +334,13 @@ class TestRig:
             flow_data = await self.flow.fetch_data()
             low_dp_data = await self.low_dp.fetch_data()
             high_dp_data = await self.high_dp.fetch_data()
+            
+            if self.test_helper.test:
+                test_id = self.test_helper.test.metadata.test_id
+            else:
+                test_id = None
             self._metrics = models.TestRigDF(
+                test_id = test_id,
                 station = self.config.station,
                 mass=mass_data,
                 flow=flow_data,
@@ -380,13 +386,17 @@ class TestRig:
 
     async def load_test(self) -> models.FlowTest:
         protocol = models.TestProtocol.from_json(self.test_protocol_filename)
-        metadata = models.TestMetadata(station=self.config.station,**self.user_meta.to_dict())
+        metadata = models.TestMetadata(station=self.config.station,
+                                       protocol_file=protocol.name,
+                                       **self.user_meta.to_dict())
 
         return models.FlowTest(protocol=protocol,metadata=metadata)
 
-    async def run_test(self,event_q:asyncio.Queue):
+    async def run_test(self,event_q:asyncio.Queue,daq_writer:DaqJsonlWriter):
         test = await self.load_test()
         self.test_helper = TestHelper(test=test)
+
+        await daq_writer.write(test.metadata)
         try:
             for i,stage in enumerate(test.protocol.stages):
                 self.test_helper.stage_num = i + 1

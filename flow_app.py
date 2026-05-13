@@ -279,7 +279,8 @@ class FlowTestApp(App):
         logger.debug(f"Metadata update sent →")
 
     def _lock_metadata(self, locked: bool):
-        for w in (self.height, self.diameter, self.gas, self.notes):
+        setpoint_button = self.query_one('#send_setpoint')
+        for w in (self.height, self.diameter, self.gas, self.notes, setpoint_button):
             w.disabled = locked
 
     @on(Input.Changed, "#height")
