@@ -216,7 +216,7 @@ class TestRig:
         self.state_change:asyncio.Event = asyncio.Event()
         self.test_helper:TestHelper = TestHelper()
         self.test_protocol_filename:Path = Path('protocols','example-protocol.json')
-        self.user_meta = models.UserMetadata()
+        self.user_meta = models.UserMetadata.load_user_data()
 
         try:
             if config.mock:

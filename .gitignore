@@ -22,6 +22,7 @@ data
 daq_watch
 .daq_watch/
 daq_config.toml
+.local/
 
 # Ignore everything in the protocols directory
 protocols/*

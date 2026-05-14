@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult, on
 from textual.containers import Horizontal, Vertical, Center, Middle
 from textual.widgets import (
     Header, Footer, Button, Input, Label, Static, DataTable, Select, RichLog,
-    TabbedContent, TabPane, ProgressBar
+    TabbedContent, TabPane, ProgressBar, TextArea
 )
 from textual.reactive import reactive
 from textual.message import Message
@@ -69,7 +69,7 @@ class FlowTestApp(App):
             with TabPane("🔴 Live", id="live"):
                 with Horizontal():
                     with Vertical(classes="panel"):
-                        with Vertical():
+                        with Vertical(id='metrics-box'):
                             yield Static("Live Metrics", classes="h2")
                             yield DataTable(id="metrics-table")
                         with Vertical():
@@ -96,16 +96,16 @@ class FlowTestApp(App):
                     
                     with Horizontal(id="button-bar", classes="panel"):
                         self.start_btn = Button("▶️ START TEST", id="start_test", variant="success")
-                        self.stop_btn = Button("⏹️ STOP TEST", id="stop_test", variant="error", disabled=True)
+                        self.stop_btn = Button("🛑 STOP TEST", id="stop_test", variant="error", disabled=True)
                         yield self.start_btn
                         yield self.stop_btn
-                        yield Button("Quit", id="quit")
+                        yield Button("⚠️ EXIT", id="quit",variant='warning')
                     
                     with Horizontal():
-                        # Metadata column
                         with Vertical(classes="panel", id="metadata-panel"):
-                            yield Static("📋 Test Metadata", classes="h1")
+                            yield Static("📖 Test Metadata", classes="h1")
 
+                        # Metadata column
                             yield Label("Cylinder Height (cm):")
                             self.height = Input(placeholder="height", type='number',id='height')
                             yield self.height
@@ -119,31 +119,33 @@ class FlowTestApp(App):
                             yield self.gas
 
                             yield Label("Notes:")
-                            self.notes = Input(placeholder="Flow characterization...", id="notes")
+                            # self.notes = Input(placeholder="Flow characterization...", id="notes")
+                            self.notes = TextArea(placeholder="Flow characterization...", id="notes")
                             yield self.notes
 
                             # Protocol Selector
-                            yield Label("📋 Test Protocol:")
+                            yield Label("📈📉 Test Protocol:")
                             self.protocol_select = Select(
                                 options=self._scan_protocols(),
                                 value=self._scan_protocols()[0][1] if self._scan_protocols() else Select.NULL,
                                 allow_blank=True,
                                 id="protocol-select"
                             )
-                            yield self.protocol_select
+                            with Horizontal():
+                                yield self.protocol_select
                             
-                            yield Button("🔄 Refresh List", id="refresh_protocols", variant="default")
-
+                                yield Button("♻️ Refresh List", id="refresh_protocols", variant="primary")
 
                         # Control column
                         with Vertical(classes="panel", id="control-panel"):
-                            yield Static("🎛️ Live Control", classes="h2")
-                            yield Label("Setpoint (SLPM):")
-                            self.setpoint_input = Input(value="0.0", id="setpoint")
-                            yield self.setpoint_input
+                            with Horizontal(classes='box'):
+                                yield Static("🎮 Live Control", classes="h2")
+                                yield Label("Setpoint (SLPM):")
+                                self.setpoint_input = Input(value="0.0", id="setpoint")
+                                yield self.setpoint_input
+                                yield Button("Send Setpoint", id="send_setpoint", variant="primary")
 
-                            yield Button("Send Setpoint", id="send_setpoint", variant="primary")
-                            yield Button("Tare Scale", id="tare_scale", variant="warning")
+                            yield Button("Tare Scale", id="tare_scale", variant="primary")
 
         yield Footer()
 
@@ -154,6 +156,8 @@ class FlowTestApp(App):
         global test_rig
         cfg = load_test_rig_config()
         test_rig = machine.TestRig(cfg)
+        
+        self._init_metadata()
 
         # Table
         table = self.query_one("#metrics-table", DataTable)
@@ -206,7 +210,7 @@ class FlowTestApp(App):
 
         if not status:
             progress_msg.update("🟡 No active test")
-            progress_bar.progress = 0
+            # progress_bar.progress = 0
             return
     
         stage_info = f"Stage {status.get('current_stage', '?')}/{status.get('stage_total', '?')}"
@@ -269,7 +273,7 @@ class FlowTestApp(App):
             height = float(self.height.value) if self.height.value != "" else None,
             diameter = float(self.diameter.value) if self.diameter.value != "" else None,
             gas=self.gas.value,
-            notes=self.notes.value.strip(),
+            notes=self.notes.text.strip(),
             )
 
         event = models.MetadataUpdateEvent(
@@ -280,16 +284,24 @@ class FlowTestApp(App):
 
     def _lock_metadata(self, locked: bool):
         setpoint_button = self.query_one('#send_setpoint')
-        for w in (self.height, self.diameter, self.gas, self.notes, setpoint_button):
+        quit_button = self.query_one('#quit',Button)
+        for w in (self.height, self.diameter, self.gas, self.notes, setpoint_button, quit_button):
             w.disabled = locked
 
     @on(Input.Changed, "#height")
     @on(Input.Changed, "#diameter")
-    @on(Input.Changed, "#notes")
+    @on(TextArea.Changed, "#notes")
     @on(Select.Changed, "#gas")
     def on_metadata_field_changed(self, event):
         """Any metadata field change triggers update"""
         self._send_metadata_update()
+
+    def _init_metadata(self):
+        data = models.UserMetadata.load_user_data()
+        self.query_one('#height').value = str(data.height)
+        self.query_one('#diameter').value = str(data.diameter)
+        self.query_one('#notes').text = data.notes
+        self.query_one('#gas').value = data.gas        
 
     @on(MetricsUpdated)
     def handle_metrics_update(self):

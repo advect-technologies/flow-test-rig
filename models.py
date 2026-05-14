@@ -161,9 +161,29 @@ class UserMetadata:
     diameter: float = 0.0
     gas: str = "Air"
     notes: str = ""
+    _persist_path:ClassVar[Path] = Path('.local','user-meta.json')
 
+    def __post_init__(self):
+        Path('.local').mkdir(exist_ok=True)
+        self._save_user_data()
+        
     def to_dict(self) -> Dict:
         return asdict(self)
+    
+    def _save_user_data(self):
+        data = self.to_dict()
+        self._persist_path.write_text(json.dumps(data))
+
+    @classmethod
+    def load_user_data(cls):
+        if not cls._persist_path.exists(): return cls()
+        try:
+            data = json.loads(cls._persist_path.read_text())
+            return cls(**data)
+        except Exception as ex:
+            logger.warning('Unable load user metadata')
+            return cls()
+
 
 @dataclass
 class FlowTest:
