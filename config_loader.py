@@ -2,7 +2,7 @@
 from pathlib import Path
 import tomllib
 from dataclasses import fields, is_dataclass, _MISSING_TYPE, asdict
-from typing import Any, TypeVar, Type
+from typing import Any, TypeVar, Type, get_args, get_origin, Union
 from models import TestRigConfig
 from rich import print_json
 from loguru import logger
@@ -10,9 +10,18 @@ from loguru import logger
 T = TypeVar("T")
 
 
+def _unwrap_optional(tp) -> Any:
+    """If tp is Optional[X] (i.e. Union[X, None]), return X. Otherwise return tp as-is."""
+    if get_origin(tp) is Union:
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return tp
+
+
 def _toml_to_dataclass(
-    cls: Type[T], 
-    data: dict[str, Any], 
+    cls: Type[T],
+    data: dict[str, Any],
     path: str = ""
 ) -> T:
     """Recursively instantiate dataclass with basic schema validation."""
@@ -45,18 +54,21 @@ def _toml_to_dataclass(
         elif value is None and not isinstance(f.default, _MISSING_TYPE):
             value = f.default
 
-        # Nested dataclass
-        if is_dataclass(f.type) and isinstance(value, dict):
-            field_dict[key] = _toml_to_dataclass(f.type, value, full_path)
+        # Unwrap Optional[X] -> X before any type checks
+        inner_type = _unwrap_optional(f.type)
+
+        # Nested dataclass (handles both MyClass and Optional[MyClass])
+        if is_dataclass(inner_type) and isinstance(value, dict):
+            field_dict[key] = _toml_to_dataclass(inner_type, value, full_path)
 
         # List of dataclasses (future-proof)
         elif (
             isinstance(value, list)
             and value
-            and hasattr(f.type, "__args__")
-            and is_dataclass(f.type.__args__[0])
+            and hasattr(inner_type, "__args__")
+            and is_dataclass(inner_type.__args__[0])
         ):
-            item_cls = f.type.__args__[0]
+            item_cls = inner_type.__args__[0]
             field_dict[key] = [
                 _toml_to_dataclass(item_cls, item, f"{full_path}[{i}]")
                 for i, item in enumerate(value)
@@ -77,7 +89,7 @@ def load_test_rig_config(
     path: str | Path = "config.toml",
 ) -> TestRigConfig:
     """
-    Simple, robust TOML → TestRigConfig loader with schema validation.
+    Simple, robust TOML -> TestRigConfig loader with schema validation.
     """
     path = Path(path)
 
