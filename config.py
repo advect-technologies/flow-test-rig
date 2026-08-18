@@ -1,6 +1,7 @@
 import tomllib
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
+from socket import gethostname
 
 from loguru import logger
 from rich import print_json
@@ -98,11 +99,11 @@ class TestRigConfig:
     """Complete test rig hardware configuration."""
 
     mock: bool
-    station: str
     mass: ScaleConfig
     flow: FlowControlConfig
     high_dp: DiffPressConfig
     low_dp: DiffPressConfig
+    station: str = field(default_factory=lambda: gethostname())
     alicat_shared: AlicatSharedSerial = field(default_factory=AlicatSharedSerial)
     daq: DAQConfig = field(default_factory=DAQConfig)
 

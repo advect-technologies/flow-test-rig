@@ -389,6 +389,8 @@ class TestRig:
         return {"station": self.config.station, **test_data}
 
     def fetch_flat_metrics(self) -> dict:
+        if self._metrics is None:
+            return {}
         return self._metrics.flatten()
 
     async def change_setpoint(self, val: float):
