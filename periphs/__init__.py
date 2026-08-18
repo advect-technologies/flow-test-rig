@@ -1,3 +1,1 @@
-from . import alicat
-from . import scale
-from . import utils
+from . import alicat, scale, utils

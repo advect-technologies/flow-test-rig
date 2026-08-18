@@ -1,34 +1,32 @@
 import asyncio
-import aioserial
 import datetime as dt
-from typing import Optional, Callable, Dict
-from serial.serialutil import SerialException, PARITY_NONE, STOPBITS_ONE, EIGHTBITS
+from dataclasses import asdict, dataclass, field
+from typing import Callable, Dict, Optional
+
+import aioserial
 from loguru import logger
-from dataclasses import dataclass, field, asdict
+from serial.serialutil import EIGHTBITS, PARITY_NONE, STOPBITS_ONE, SerialException
+
 
 @dataclass(kw_only=True)
 class PeriphDF:
-    time: float = field(
-        default_factory=dt.datetime.now(dt.UTC).timestamp
-        )
-    
+    time: float = field(default_factory=dt.datetime.now(dt.UTC).timestamp)
+
     @classmethod
     def parse_line(cls, raw_line: str) -> PeriphDF:
         return cls()
-    
-    def flatten(self,
-                prefix:str = None,
-                exclude:list[str|None]=[]
-                ):
-        
-        return {f'{prefix}_{k}':v for k,v in asdict(self).items() if k not in exclude}
+
+    def flatten(self, prefix: str = None, exclude: list[str | None] = []):
+
+        return {f"{prefix}_{k}": v for k, v in asdict(self).items() if k not in exclude}
+
 
 class SerialConfig:
     port: str = "/dev/ttyUSB0"
     baud_rate: int = 19200
-    bytesize: int = EIGHTBITS,
-    parity: str = PARITY_NONE,
-    stopbits: float = STOPBITS_ONE,
+    bytesize: int = (EIGHTBITS,)
+    parity: str = (PARITY_NONE,)
+    stopbits: float = (STOPBITS_ONE,)
 
 
 class SimpleSerialDevice:
@@ -126,9 +124,13 @@ class SimpleSerialDevice:
                             return raw.decode(self.encoding, errors="replace").strip()
 
                 except asyncio.TimeoutError:
-                    logger.debug(f"{self.name}: Timeout on attempt {attempt+1}/{effective_retries+1}: {command}")
+                    logger.debug(
+                        f"{self.name}: Timeout on attempt {attempt + 1}/{effective_retries + 1}: {command}"
+                    )
                 except (SerialException, OSError, ConnectionError) as e:
-                    logger.warning(f"{self.name}: Serial error on attempt {attempt+1}: {e}")
+                    logger.warning(
+                        f"{self.name}: Serial error on attempt {attempt + 1}: {e}"
+                    )
                     self._ser = None  # force reopen next attempt
                 except Exception as e:
                     logger.exception(f"{self.name}: Unexpected error in query")
@@ -137,7 +139,9 @@ class SimpleSerialDevice:
             if attempt < effective_retries:
                 await asyncio.sleep(self.retry_backoff)
 
-        logger.warning(f"{self.name}: All {effective_retries+1} attempts failed for: {command}")
+        logger.warning(
+            f"{self.name}: All {effective_retries + 1} attempts failed for: {command}"
+        )
         return None
 
     async def write_only(self, command: str) -> bool:
@@ -155,7 +159,8 @@ class SimpleSerialDevice:
                 logger.error(f"{self.name}: Write failed: {e}")
                 self._ser = None  # force reopen next time
                 return False
-            
+
+
 class MockSerialDevice:
     """
     Mock serial device for testing.
@@ -176,10 +181,12 @@ class MockSerialDevice:
 
     def __init__(
         self,
-        response_mapper: Callable[[str], Optional[str]] | Dict[str, Optional[str]] | None = None,
+        response_mapper: Callable[[str], Optional[str]]
+        | Dict[str, Optional[str]]
+        | None = None,
         name: str = "MockSerial",
         always_connected: bool = True,
-        delay: float = 0.0,               # simulated network/device delay
+        delay: float = 0.0,  # simulated network/device delay
     ):
         self.name = name
         self._delay = delay
@@ -218,12 +225,13 @@ class MockSerialDevice:
         if not self._always_connected:
             # Simulate occasional disconnects for testing robustness
             import random
+
             if random.random() < 0.1:  # 10% chance
-                logger.debug('Simulating disconnect, no data returned')
+                logger.debug("Simulating disconnect, no data returned")
                 return None
 
         response = self._response_mapper(command.rstrip())
-        logger.debug(f'Responding with mock line: {response}')
+        logger.debug(f"Responding with mock line: {response}")
         return response
 
     async def write_only(self, command: str) -> bool:

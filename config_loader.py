@@ -1,11 +1,13 @@
 # config_loader.py
-from pathlib import Path
 import tomllib
-from dataclasses import fields, is_dataclass, _MISSING_TYPE, asdict
-from typing import Any, TypeVar, Type, get_args, get_origin, Union
-from models import TestRigConfig
-from rich import print_json
+from dataclasses import _MISSING_TYPE, asdict, fields, is_dataclass
+from pathlib import Path
+from typing import Any, Type, TypeVar, Union, get_args, get_origin
+
 from loguru import logger
+from rich import print_json
+
+from models import TestRigConfig
 
 T = TypeVar("T")
 
@@ -19,11 +21,7 @@ def _unwrap_optional(tp) -> Any:
     return tp
 
 
-def _toml_to_dataclass(
-    cls: Type[T],
-    data: dict[str, Any],
-    path: str = ""
-) -> T:
+def _toml_to_dataclass(cls: Type[T], data: dict[str, Any], path: str = "") -> T:
     """Recursively instantiate dataclass with basic schema validation."""
     if not is_dataclass(cls):
         return data  # primitive
@@ -38,9 +36,8 @@ def _toml_to_dataclass(
         value = data.get(key)
 
         # === Schema check: required fields ===
-        has_default = (
-            not isinstance(f.default, _MISSING_TYPE) or
-            not isinstance(f.default_factory, _MISSING_TYPE)
+        has_default = not isinstance(f.default, _MISSING_TYPE) or not isinstance(
+            f.default_factory, _MISSING_TYPE
         )
         if value is None and not has_default:
             raise ValueError(

@@ -12,6 +12,7 @@ dependencies = [
     "loguru>=0.7.3",
     "nicegui>=3.6.1",
     "textual>=8.2.5",
+    "textual-dev>=1.8.0",
 ]
 
 [dependency-groups]
