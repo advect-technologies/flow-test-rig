@@ -2,12 +2,12 @@ mock = true   # If true, program generate fake serial data
 station = "dev-station"
 
 [daq]
-watch-dir = ".daq_watch"
+watch_dir = ".daq_watch"
 measurement = "flow_test_rig"
-
-[daq.buffer]
-max-size = 30          # lines
-max-age-seconds = 30.0  # force flush
+metadata_measurement = "flow_test_rig_meta"
+base_tags = { rig = "mock_dev" }          # optional static tags
+buffer_max_size = 30           # lines
+buffer_max_age_seconds = 30.0  # force flush
 
 [mass]
 units = "g"
@@ -18,28 +18,28 @@ baudrate = 2400
 bytesize = 7
 parity = 'E'
 
-[alicat-shared.serial]           # one port for all Alicats
+[alicat_shared.serial]           # one port for all Alicats
 port = "/dev/ttyUSB0"
 baudrate = 19200
 timeout = 0.5
 
 [flow]
-full-scale-min = 0.0
-full-scale-max = 20.0
-unit-id = "A"
-flow-unit = "SLPM"
+full_scale_min = 0.0
+full_scale_max = 20.0
+unit_id = "A"
+flow_unit = "SLPM"
 # no serial uses alicat-shared
 
 [high-dp]
-full-scale-min = 0.0
-full-scale-max = 5.0
-unit-id = "C"
-pressure-unit = "PSI"
+full_scale_min = 0.0
+full_scale_max = 5.0
+unit_id = "C"
+pressure_unit = "PSI"
 # no serial shared
 
 [low-dp]
-full-scale-min = 0.0
-full-scale-max = 2.0
-unit-id = "B"
-pressure-unit = "INH2O"
+full_scale_min = 0.0
+full_scale_max = 2.0
+unit_id = "B"
+pressure_unit = "INH2O"
 # no serial shared

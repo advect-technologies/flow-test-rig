@@ -7,7 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from secrets import choice
 from socket import gethostname
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import ClassVar
 
 from daq_tools.models import DataPoint
 from loguru import logger
@@ -57,9 +57,9 @@ class TestStageStable(TestStage):
 class TestStageRamp(TestStage):
     target_start: float
     target_stop: float
-    targets: List[float] = field(default_factory=list, init=False)
-    times: List[float] = field(default_factory=list, init=False)
-    time_step_s: float = field(default=None, init=False)
+    targets: list[float] = field(default_factory=list, init=False)
+    times: list[float] = field(default_factory=list, init=False)
+    time_step_s: float = field(init=False)
     TYPE: ClassVar[str] = "RAMP"
 
     def __post_init__(self):
@@ -86,15 +86,15 @@ class TestStageRamp(TestStage):
 @dataclass
 class TestProtocol:
     stages: list[TestStage]
-    name: Optional[str] = ""
+    name: str | None = ""
 
     @classmethod
     def from_json(
         cls, path: Path = Path("protocols/example-protocol.json"), name: str = ""
-    ) -> TestProtocol:
+    ) -> "TestProtocol":
         path = Path(path)
         if not path.exists():
-            RuntimeError(f"{path.absolute()} does not exist")
+            raise RuntimeError(f"{path.absolute()} does not exist")
 
         data = json.loads(path.read_text())
         if name == "":
@@ -103,14 +103,14 @@ class TestProtocol:
         return cls.loader(data, name=name)
 
     @classmethod
-    def loader(cls, stage_list: List[Dict], name: str) -> TestProtocol:
-        stages: List[TestStage] = [
+    def loader(cls, stage_list: list[dict], name: str) -> "TestProtocol":
+        stages: list[TestStage] = [
             cls._resolve_stage(s, i) for i, s in enumerate(stage_list)
         ]
         return cls(stages=stages, name=name)
 
     @classmethod
-    def _resolve_stage(cls, stage: Dict, index: int):
+    def _resolve_stage(cls, stage: dict, index: int):
 
         STAGE_MAP = {c.TYPE: c for c in TestStage.__subclasses__()}
 
@@ -136,7 +136,7 @@ class TestMetadata:
     gas: str = "Air"
     notes: str = ""
     start_time: float = field(default_factory=time.time)
-    protocol_file: Path | None = None
+    protocol_file: Path | str | None = None
 
     def __post_init__(self):
         if self.test_id == "":
@@ -149,15 +149,16 @@ class TestMetadata:
         return d
 
     def to_data_points(
-        self, measurement: str = "flow_test_rig_meta", base_tags: dict | None = {}
+        self, measurement: str = "flow_test_rig_meta", base_tags: dict | None = None
     ) -> list[DataPoint]:
 
         flat = self.to_dict()
-        tags = dict(test_id=self.test_id, station=self.station)
+        tags = {"test_id": self.test_id, "station": self.station}
         if isinstance(base_tags, dict):
             tags.update(base_tags)
 
-        for k, v in tags.items():
+        # Ensure no extra tags are present in flat
+        for k in tags:
             flat.pop(k, None)
 
         point = DataPoint(
@@ -180,7 +181,7 @@ class UserMetadata:
         Path(".local").mkdir(exist_ok=True)
         self._save_user_data()
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
     def _save_user_data(self):
@@ -194,7 +195,7 @@ class UserMetadata:
         try:
             data = json.loads(cls._persist_path.read_text())
             return cls(**data)
-        except Exception as ex:
+        except Exception:
             logger.warning("Unable load user metadata")
             return cls()
 
@@ -202,19 +203,19 @@ class UserMetadata:
 @dataclass
 class FlowTest:
     protocol: TestProtocol
-    create_time: Optional[int] = field(default_factory=time.time)
+    create_time: int | None = field(default_factory=lambda: int(time.time()))
     metadata: TestMetadata = field(default_factory=TestMetadata)
 
 
 @dataclass(kw_only=True)
 class TestRigDF:
-    test_id: str = None
+    test_id: str | None = None
     station: str
     time: float = field(default_factory=lambda: time.time())
-    mass: Optional[scale.ADEK30KL_DF] = None
-    flow: Optional[alicat.AlicatMassFlowDF] = None
-    low_dp: Optional[alicat.AlicatBaseDF] = None
-    high_dp: Optional[alicat.AlicatBaseDF] = None
+    mass: scale.ADEK30KL_DF | None = None
+    flow: alicat.AlicatMassFlowDF | None = None
+    low_dp: alicat.AlicatBaseDF | None = None
+    high_dp: alicat.AlicatBaseDF | None = None
 
     def flatten(self):
         mass = (
@@ -248,7 +249,7 @@ class TestRigDF:
         }
 
     def to_data_points(
-        self, measurement: str = "flow-test_rig", base_tags: dict | None = {}
+        self, measurement: str = "flow-test_rig", base_tags: dict | None = None
     ) -> list[DataPoint]:
         """Convert the full rig snapshot into DataPoint(s) for daq-tools.
 
@@ -287,121 +288,9 @@ class TestRigDF:
         return [point]
 
 
-@dataclass
-class SerialConfig:
-    """Serial port settings (used for Alicat devices and scale)."""
-
-    port: str = "/dev/ttyUSB0"
-    baudrate: int = 19200
-    bytesize: int = 8
-    parity: str = "N"
-    stopbits: int = 1
-    timeout: float = 1.0  # seconds
-    query_timeout: float = 1.5
-
-
-@dataclass
-class ScaleConfig:
-    """Scale (load cell) configuration."""
-
-    serial: SerialConfig
-    units: str = "g"
-
-
-@dataclass
-class AlicatSharedSerial:
-    """Optional shared serial connection for multi-drop / multiplexed Alicat devices.
-    If defined, Alicat devices without their own 'serial' block will use this one.
-    """
-
-    serial: Optional[SerialConfig] = None
-
-
-@dataclass
-class AlicatConfig:
-    """Base for all Alicat instruments."""
-
-    full_scale_min: float
-    full_scale_max: float
-    unit_id: str = "A"  # 'A'–'Z' for multi-drop addressing
-    pressure_unit: alicat.AlicatPressureUnits | str = "PSI"
-    serial: Optional[SerialConfig] = None  # device-specific override
-
-    def __post_init__(self):
-        if not isinstance(self.pressure_unit, (int, alicat.AlicatPressureUnits)):
-            self.pressure_unit = getattr(
-                alicat.AlicatPressureUnits, self.pressure_unit.upper()
-            )
-        self.full_scale_min = alicat.convert_to_pa(
-            self.full_scale_min, self.pressure_unit
-        )
-        self.full_scale_max = alicat.convert_to_pa(
-            self.full_scale_max, self.pressure_unit
-        )
-
-
-@dataclass
-class FlowControlConfig(AlicatConfig):
-    """Mass flow controller/meter."""
-
-    flow_unit: str = "SLPM"
-
-
-@dataclass
-class DiffPressConfig(AlicatConfig):
-    """Differential pressure sensor."""
-
-    pass  # extend later if needed (e.g. damping, averaging)
-
-
-@dataclass
-class DaqBufferConfig:
-    """Buffer settings for the JSONL writer."""
-
-    max_size: int = 100  # number of records before forcing a dump
-    max_age_seconds: float = 30.0  # force dump after this many seconds
-
-
-@dataclass
-class DaqConfig:
-    watch_dir: Path = field(default_factory=lambda: Path(".daq_watch"))
-    measurement: str = "flow_test_rig"
-    metadata_measurement: str = "flow_test_rig_meta"
-    sample_period_s: int = 10
-    base_tags: dict[str, Any] = field(default_factory=dict)
-    buffer: DaqBufferConfig = field(default_factory=DaqBufferConfig)
-
-
-@dataclass
-class TestRigConfig:
-    """Complete test rig hardware configuration."""
-
-    mock: bool
-    station: str
-    mass: ScaleConfig
-    flow: FlowControlConfig
-    high_dp: DiffPressConfig
-    low_dp: DiffPressConfig
-    alicat_shared: AlicatSharedSerial = field(default_factory=AlicatSharedSerial)
-    daq: DaqConfig = field(default_factory=DaqConfig)
-
-    def __post_init__(self):
-        """Basic consistency checks."""
-        # Ensure at least one Alicat has access to a serial port
-        alicats = [self.flow, self.high_dp, self.low_dp]
-
-        has_serial = any(
-            [
-                self.alicat_shared.serial is not None,
-                all([a.serial is not None for a in alicats]),
-            ]
-        )
-
-        if not has_serial:
-            raise ValueError(
-                "No serial configuration found for any Alicat device. "
-                "Define alicat_shared.serial or a per-device serial."
-            )
+####################
+# App Models
+####################
 
 
 class EventNames(StrEnum):

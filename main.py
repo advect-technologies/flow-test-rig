@@ -4,7 +4,7 @@ import sys
 from loguru import logger
 
 import machine
-from config_loader import load_test_rig_config
+from config import load_test_rig_config
 
 # Windows asyncio fix — must be very early
 if sys.platform == "win32":

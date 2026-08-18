@@ -34,9 +34,9 @@ class ADEK30KL_COMMANDS(StrEnum):
 
 @dataclass(kw_only=True)
 class ADEK30KL_DF(utils.PeriphDF):
-    header: ADEK30KL_DATA_HEADERS | None
-    value: float | None
-    unit: ADEK30KL_DATA_UNITS | None
+    header: ADEK30KL_DATA_HEADERS | None = None
+    value: float | None = None
+    unit: ADEK30KL_DATA_UNITS | None = None
 
     def __post_init__(self):
 
@@ -50,7 +50,7 @@ class ADEK30KL_DF(utils.PeriphDF):
     def parse_line(
         cls,
         line: str,
-    ) -> ADEK30KL_DF:
+    ) -> "ADEK30KL_DF":
         if not line:
             raise TypeError(f"line must be string not {type(line)}")
 
@@ -61,6 +61,13 @@ class ADEK30KL_DF(utils.PeriphDF):
             header, rhs = m.group().split(",")
             data = float(rhs[:9])
             unit = rhs[9:].strip()
+
+            header = (
+                ADEK30KL_DATA_HEADERS(header)
+                if header in ADEK30KL_DATA_HEADERS
+                else None
+            )
+            unit = ADEK30KL_DATA_UNITS(unit) if unit in ADEK30KL_DATA_UNITS else None
 
             return cls(header=header, value=data, unit=unit)
         else:
@@ -85,29 +92,30 @@ class ADEK30KL:
 
         if line is None:
             logger.warning("No data received")
-            return
+            return ADEK30KL_DF()
 
         try:
             data = ADEK30KL_DF.parse_line(line)
             return data
         except (ValueError, TypeError) as e:
             logger.error(f'Unable to parse line: "{e}"')
+            return ADEK30KL_DF()
         except Exception:
-            pass
+            return ADEK30KL_DF()
 
     async def tare(self) -> bool:
         line = await self.serial.query(ADEK30KL_COMMANDS.TARE + "\r\n")
         logger.info("Zeroing Scale")
         if line is None:
             logger.warning("No data received")
-            return
+            return False
         try:
-            if line.strip() == ADEK30KL_COMMANDS.TARE:
-                return True
+            return line.strip() == ADEK30KL_COMMANDS.TARE
         except (ValueError, TypeError) as e:
             logger.error(f'Unable to parse line: "{e}"')
+            return False
         except Exception:
-            pass
+            return False
 
     @classmethod
     def mock_command_map(cls, command: str) -> str | None:

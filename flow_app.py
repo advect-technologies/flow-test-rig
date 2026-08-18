@@ -32,7 +32,7 @@ from textual.widgets import (
 
 import machine
 import models
-from config_loader import load_test_rig_config
+from config import load_test_rig_config
 from models import States as RigStates
 
 
@@ -211,8 +211,10 @@ class FlowTestApp(App):
         # Log
         log = self.query_one("#log", RichLog)
         logger.remove()
-        logger.add(
-            log.write, level="INFO", format="{time:HH:mm:ss} | {level} | {message}"
+        logger.add(  # pyright: ignore[reportCallIssue]
+            log.write,  # pyright: ignore[reportArgumentType]
+            level="INFO",
+            format="{time:HH:mm:ss} | {level} | {message}",
         )
 
         self.update_status_banner()
@@ -221,6 +223,8 @@ class FlowTestApp(App):
         self.run_worker(self._state_watcher())
 
     async def run_flow_app(self):
+        if test_rig is None:
+            return
         await machine.flow_tasks(
             test_rig,
             self.stop_flag,
@@ -319,15 +323,15 @@ class FlowTestApp(App):
     def _send_metadata_update(self):
         """Send current UI values to backend"""
         meta = models.UserMetadata(
-            height=float(self.height.value) if self.height.value != "" else None,
-            diameter=float(self.diameter.value) if self.diameter.value != "" else None,
-            gas=self.gas.value,
+            height=float(self.height.value) if self.height.value != "" else 0.0,
+            diameter=float(self.diameter.value) if self.diameter.value != "" else 0.0,
+            gas=self.gas.value if isinstance(self.gas.value, str) else "",
             notes=self.notes.text.strip(),
         )
 
         event = models.MetadataUpdateEvent(meta=meta)
         test_rig_event_q.put_nowait(event)
-        logger.debug(f"Metadata update sent →")
+        logger.debug("Metadata update sent →")
 
     def _lock_metadata(self, locked: bool):
         setpoint_button = self.query_one("#send_setpoint")

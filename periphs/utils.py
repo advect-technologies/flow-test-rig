@@ -1,7 +1,8 @@
 import asyncio
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Dict, Optional
+from typing import Any
 
 import aioserial
 from loguru import logger
@@ -13,20 +14,14 @@ class PeriphDF:
     time: float = field(default_factory=dt.datetime.now(dt.UTC).timestamp)
 
     @classmethod
-    def parse_line(cls, raw_line: str) -> PeriphDF:
+    def parse_line(cls, raw_line: str) -> "PeriphDF":
         return cls()
 
-    def flatten(self, prefix: str = None, exclude: list[str | None] = []):
+    def flatten(self, prefix: str | None = None, exclude: list[str] | None = None):
 
+        if exclude is None:
+            exclude = []
         return {f"{prefix}_{k}": v for k, v in asdict(self).items() if k not in exclude}
-
-
-class SerialConfig:
-    port: str = "/dev/ttyUSB0"
-    baud_rate: int = 19200
-    bytesize: int = (EIGHTBITS,)
-    parity: str = (PARITY_NONE,)
-    stopbits: float = (STOPBITS_ONE,)
 
 
 class SimpleSerialDevice:
@@ -64,7 +59,7 @@ class SimpleSerialDevice:
         self.encoding = encoding
         self.name = name
 
-        self._ser: Optional[aioserial.AioSerial] = None
+        self._ser: aioserial.AioSerial | None = None
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
@@ -73,7 +68,7 @@ class SimpleSerialDevice:
             try:
                 await self._ser.close()
             except Exception:
-                pass
+                logger.debug(f"{self.name}: Failed to close port")
             self._ser = None
 
     async def _ensure_open(self) -> bool:
@@ -97,9 +92,9 @@ class SimpleSerialDevice:
     async def query(
         self,
         command: str,
-        timeout: Optional[float] = None,
-        retries: Optional[int] = None,
-    ) -> Optional[str]:
+        timeout: float | None = None,
+        retries: int | None = None,
+    ) -> str | None:
         """
         Send command and wait for one line response.
         Retries on timeout or serial errors.
@@ -123,7 +118,7 @@ class SimpleSerialDevice:
                         if raw:
                             return raw.decode(self.encoding, errors="replace").strip()
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.debug(
                         f"{self.name}: Timeout on attempt {attempt + 1}/{effective_retries + 1}: {command}"
                     )
@@ -132,7 +127,7 @@ class SimpleSerialDevice:
                         f"{self.name}: Serial error on attempt {attempt + 1}: {e}"
                     )
                     self._ser = None  # force reopen next attempt
-                except Exception as e:
+                except Exception:
                     logger.exception(f"{self.name}: Unexpected error in query")
                     return None
 
@@ -181,8 +176,8 @@ class MockSerialDevice:
 
     def __init__(
         self,
-        response_mapper: Callable[[str], Optional[str]]
-        | Dict[str, Optional[str]]
+        response_mapper: Callable[[str], str | None]
+        | dict[str, str | None]
         | None = None,
         name: str = "MockSerial",
         always_connected: bool = True,
@@ -201,18 +196,17 @@ class MockSerialDevice:
             self._response_mapper = lambda cmd: f"MOCK: {cmd.strip()}"
 
         # For write_only tracking (optional debugging)
-        self._last_written: Optional[str] = None
+        self._last_written: str | None = None
 
     async def close(self) -> None:
         """Mock close - does nothing."""
-        pass
 
     async def query(
         self,
         command: str,
-        timeout: Optional[float] = None,
-        retries: Optional[int] = None,
-    ) -> Optional[str]:
+        timeout: float | None = None,
+        retries: int | None = None,
+    ) -> str | None:
         """
         Simulate sending a command and receiving a response.
         Ignores timeout/retries (always "succeeds" instantly or with delay).
@@ -243,8 +237,49 @@ class MockSerialDevice:
         return True
 
     # Optional helpers for test assertions
-    def get_last_written(self) -> Optional[str]:
+    def get_last_written(self) -> str | None:
         return self._last_written
 
     def reset_last_written(self) -> None:
         self._last_written = None
+
+
+def safe_float(value: Any) -> float:
+    """
+    Safely convert a value to float.
+
+    Args:
+        value: Value to convert (string, float, int, etc.)
+
+    Returns:
+        float: Converted value
+
+    Raises:
+        ValueError: If value cannot be converted to float
+        TypeError: If value is of unsupported type
+    """
+    # If already a float, return unaltered
+    if isinstance(value, float):
+        return value
+
+    # Handle integers and other numeric types
+    if isinstance(value, (int, bool)):
+        return float(value)
+
+    # Handle strings
+    if isinstance(value, str):
+        # Strip whitespace
+        value = value.strip()
+
+        # Handle empty string
+        if not value:
+            raise ValueError("Cannot convert empty string to float")
+
+        # Handle scientific notation and special cases
+        try:
+            return float(value)
+        except ValueError as e:
+            raise ValueError(f"Cannot convert '{value}' to float: {e!s}") from e
+
+    # Unsupported type
+    raise TypeError(f"Unsupported type for float conversion: {type(value).__name__}")

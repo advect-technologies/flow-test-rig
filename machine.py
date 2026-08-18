@@ -2,11 +2,11 @@ import asyncio
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
 
 from daq_tools import DAQIngestor
 from loguru import logger
 
+import config as cfg
 import models
 import periphs
 from daq_writer import DaqJsonlWriter
@@ -87,7 +87,7 @@ async def event_handler(
                     )
 
                 case models.EventNames.METADATA_UPDATE:
-                    logger.info(f"Metadata Update received {event.meta}")
+                    logger.debug(f"Metadata Update received {event.meta}")
                     test_rig.user_meta = event.meta
 
                 case models.EventNames.CHANGE_SETPOINT:
@@ -95,7 +95,7 @@ async def event_handler(
                     status = await test_rig.change_setpoint(event.value)
 
                 case models.EventNames.TARE_SCALE:
-                    logger.info(f"Zeroing the Scale")
+                    logger.info("Zeroing the Scale")
                     status = await test_rig.zero_scale()
 
                 case models.EventNames.PROTOCOL_CHANGE:
@@ -116,7 +116,7 @@ async def event_handler(
                 else:
                     logger.warning("Event not handled corectly, not resubmitting")
 
-        except Exception as ex:
+        except Exception:
             logger.exception("Exception in event handler")
 
 
@@ -188,7 +188,7 @@ async def flow_tasks(
 
 
 class TestHelper:
-    def __init__(self, test: models.FlowTest = None):
+    def __init__(self, test: models.FlowTest | None = None):
         self.test = test
         self.start_time: float = time.time()
         self.stage_num = 0
@@ -199,33 +199,33 @@ class TestHelper:
         if self.test is None:
             return None
         try:
-            return sum([stage._duration_s for stage in self.test.protocol.stages])
-        except Exception as ex:
+            return int(sum([stage._duration_s for stage in self.test.protocol.stages]))
+        except Exception:
             logger.warning("unable to calculate total test duration")
             return None
 
     def flatten(self) -> dict:
         if self.test is None:
             return {}
-        return dict(
-            name=self.test.protocol.name,
-            current_stage=self.stage_num,
-            stage_total=self.stage_total,
-            run_time=int(time.time() - self.start_time),
-            total_duration=self.total_duration,
-        )
+        return {
+            "name": self.test.protocol.name,
+            "current_stage": self.stage_num,
+            "stage_total": self.stage_total,
+            "run_time": int(time.time() - self.start_time),
+            "total_duration": self.total_duration,
+        }
 
 
 class TestRig:
-    def __init__(self, config: models.TestRigConfig):
+    def __init__(self, config: cfg.TestRigConfig):
         self.config = config
 
-        self.mass: periphs.scale.ADEK30KL = None
-        self.flow: periphs.alicat.AlicatFlowController = None
-        self.high_dp: periphs.alicat.AlicatDiffPressure = None
-        self.low_dp: periphs.alicat.AlicatDiffPressure = None
+        self.mass: periphs.scale.ADEK30KL | None = None
+        self.flow: periphs.alicat.AlicatFlowController | None = None
+        self.high_dp: periphs.alicat.AlicatDiffPressure | None = None
+        self.low_dp: periphs.alicat.AlicatDiffPressure | None = None
 
-        self._metrics: Optional[models.TestRigDF] = None
+        self._metrics: models.TestRigDF | None = None
         self._state = models.States.IDLE
 
         self.test_q = asyncio.Queue()
@@ -268,17 +268,19 @@ class TestRig:
 
         self.mass = periphs.scale.ADEK30KL(mass_serial)
         self.flow = periphs.alicat.AlicatFlowController(
-            alicat_flow_serial, self.config.flow.unit_id, self.config.flow.pressure_unit
+            alicat_flow_serial,
+            self.config.flow.unit_id,
+            self.config.flow.pressure_unit_code,
         )
         self.high_dp = periphs.alicat.AlicatDiffPressure(
             alicat_pressure_serial,
             self.config.high_dp.unit_id,
-            self.config.high_dp.pressure_unit,
+            self.config.high_dp.pressure_unit_code,
         )
         self.low_dp = periphs.alicat.AlicatDiffPressure(
             alicat_pressure_serial,
             self.config.low_dp.unit_id,
-            self.config.low_dp.pressure_unit,
+            self.config.low_dp.pressure_unit_code,
         )
 
     def _load_real_devices(self):
@@ -306,13 +308,13 @@ class TestRig:
             self.flow = periphs.alicat.AlicatFlowController(
                 flow_alicat_serial,
                 self.config.flow.unit_id,
-                self.config.flow.pressure_unit,
+                self.config.flow.pressure_unit_code,
             )
         elif shared_alicat_serial:
             self.flow = periphs.alicat.AlicatFlowController(
                 shared_alicat_serial,
                 self.config.flow.unit_id,
-                self.config.flow.pressure_unit,
+                self.config.flow.pressure_unit_code,
             )
         else:
             raise RuntimeError("No serial device available for flow controller")
@@ -324,13 +326,13 @@ class TestRig:
             self.high_dp = periphs.alicat.AlicatDiffPressure(
                 high_dp_alicat_serial,
                 self.config.high_dp.unit_id,
-                self.config.high_dp.pressure_unit,
+                self.config.high_dp.pressure_unit_code,
             )
         elif shared_alicat_serial:
             self.high_dp = periphs.alicat.AlicatDiffPressure(
                 shared_alicat_serial,
                 self.config.high_dp.unit_id,
-                self.config.high_dp.pressure_unit,
+                self.config.high_dp.pressure_unit_code,
             )
         else:
             raise RuntimeError(
@@ -344,13 +346,13 @@ class TestRig:
             self.low_dp = periphs.alicat.AlicatDiffPressure(
                 low_dp_alicat_serial,
                 self.config.low_dp.unit_id,
-                self.config.low_dp.pressure_unit,
+                self.config.low_dp.pressure_unit_code,
             )
         elif shared_alicat_serial:
             self.low_dp = periphs.alicat.AlicatDiffPressure(
                 shared_alicat_serial,
                 self.config.low_dp.unit_id,
-                self.config.low_dp.pressure_unit,
+                self.config.low_dp.pressure_unit_code,
             )
         else:
             raise RuntimeError(
@@ -380,7 +382,7 @@ class TestRig:
             logger.error(f"Error in update data task: {e}")
 
     def fetch_flat_test_status(self) -> dict:
-        if not self.state == models.States.ACTIVE:
+        if self.state != models.States.ACTIVE:
             return {}
 
         test_data = self.test_helper.flatten()
@@ -415,7 +417,7 @@ class TestRig:
                             logger.debug(
                                 "Full scale range exceeded on pressure sensor,stop request already sent"
                             )
-                except Exception as e:
+                except Exception:
                     logger.warning("Issue when doing supervisory control")
 
             await asyncio.sleep(1)
@@ -473,7 +475,7 @@ class TestRig:
         except asyncio.CancelledError:
             event = models.TestCancel()
             await event_q.put(event)
-        except Exception as e:
+        except Exception:
             event = models.TestCrash()
             await event_q.put(event)
         finally:

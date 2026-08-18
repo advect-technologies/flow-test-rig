@@ -1,6 +1,5 @@
 import asyncio
 import sys
-from pathlib import Path
 
 import machine
 import models
@@ -15,7 +14,7 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, Input, RichLog
 
-from config_loader import load_test_rig_config
+from config import load_test_rig_config
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")

@@ -22,3 +22,11 @@ dev = [
 
 [tool.uv.sources]
 daq-tools = { git = "https://github.com/advect-technologies/daq-tools.git" }
+
+
+[tool.ruff.lint]
+# Keep everything else, just silence blind-except
+ignore = [
+    "BLE001",   # blind-except
+    "SIM117"    # Stacked withs - helpful for Textual
+]

@@ -29,3 +29,7 @@ protocols/*
 
 # But don't ignore the specific JSON file
 !protocols/example-protocol.json
+
+storage-data/*
+transient-data/*
+.python-version

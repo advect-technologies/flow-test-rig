@@ -1,46 +1,52 @@
-from pathlib import Path
 import asyncio
 import time
+from pathlib import Path
+
 from loguru import logger
-from models import TestRigDF, DaqConfig, TestMetadata
+
+from config import DAQConfig
+from models import TestMetadata, TestRigDF
 
 
 class DaqJsonlWriter:
     """Buffered JSONL writer for daq-tools.
-    
+
     Accumulates DataPoints in memory and dumps them to a new .jsonl file
-    when the buffer hits max_size. This plays nicely with daq-tools' 
+    when the buffer hits max_size. This plays nicely with daq-tools'
     watch-and-delete pattern.
     """
 
-    def __init__(
-        self,
-        config: DaqConfig
-    ):
+    def __init__(self, config: DAQConfig):
         self.config = config
         self.watch_dir = Path(config.watch_dir)
         self.watch_dir.mkdir(parents=True, exist_ok=True)
 
-        self.max_buffer_size = config.buffer.max_size
-        self.max_age_seconds = config.buffer.max_age_seconds
+        self.max_buffer_size = config.buffer_max_size
+        self.max_age_seconds = config.buffer_max_age_seconds
 
         self._buffer: list[str] = []
         self._last_dump_time = time.time()
         self._lock = asyncio.Lock()
 
-        logger.info(f"DAQ buffered writer initialized → watch_dir={self.watch_dir}, "
-                   f"max_buffer={self.max_buffer_size}, max_age={self.max_age_seconds}s")
+        logger.info(
+            f"DAQ buffered writer initialized → watch_dir={self.watch_dir}, "
+            f"max_buffer={self.max_buffer_size}, max_age={self.max_age_seconds}s"
+        )
 
-    async def write(self, record: TestRigDF|TestMetadata) -> None:
+    async def write(self, record: TestRigDF | TestMetadata) -> None:
         """Add one TestRigDF or TestMetadata record (as DataPoint lines) to the buffer.
         Dump to file if buffer is full or too old.
         """
         try:
-            if isinstance(record,TestMetadata):
-                logger.info('Received metadata record')
-                points = record.to_data_points(self.config.metadata_measurement,self.config.base_tags)
+            if isinstance(record, TestMetadata):
+                logger.info("Received metadata record")
+                points = record.to_data_points(
+                    self.config.metadata_measurement, self.config.base_tags
+                )
             else:
-                points = record.to_data_points(self.config.measurement,self.config.base_tags)
+                points = record.to_data_points(
+                    self.config.measurement, self.config.base_tags
+                )
 
             new_lines = [p.to_json() + "\n" for p in points]
 
@@ -49,8 +55,8 @@ class DaqJsonlWriter:
 
                 now = time.time()
                 should_dump = (
-                    len(self._buffer) >= self.max_buffer_size or
-                    (now - self._last_dump_time) >= self.max_age_seconds
+                    len(self._buffer) >= self.max_buffer_size
+                    or (now - self._last_dump_time) >= self.max_age_seconds
                 )
 
                 if should_dump and self._buffer:
@@ -59,8 +65,6 @@ class DaqJsonlWriter:
 
         except Exception as e:
             logger.exception(f"Error writing record to DAQ buffer: {e}")
-
-
 
     async def _dump_buffer(self) -> None:
         """Atomically write buffer to a new .jsonl file and clear it."""

@@ -4,7 +4,7 @@ from enum import IntEnum, StrEnum
 from pathlib import Path
 from random import gauss, uniform
 from re import compile
-from typing import Optional, get_args
+from typing import get_args
 
 from loguru import logger
 
@@ -36,11 +36,9 @@ class AlicatCommands(StrEnum):
     TARE_PRESSURE = "P"
 
 
-def convert_to_pa(val: float, input_units: AlicatPressureUnits | int | str):
+def convert_to_pa(val: float, input_units: AlicatPressureUnits):
     if val is None:
         return
-    if isinstance(input_units, str):
-        input_units = AlicatPressureUnits[input_units.upper()]
 
     match input_units:
         case AlicatPressureUnits.KPA:
@@ -58,7 +56,7 @@ def convert_to_pa(val: float, input_units: AlicatPressureUnits | int | str):
 @dataclass(kw_only=True)
 class AlicatBaseDF(utils.PeriphDF):
     unit_id: str
-    pressure: Optional[float] = None
+    pressure: float | None | str = None
 
     def __post_init__(self):
         names = [
@@ -76,7 +74,7 @@ class AlicatBaseDF(utils.PeriphDF):
     @classmethod
     def parse_line(
         cls, raw_line: str, pressure_unit: AlicatPressureUnits
-    ) -> AlicatBaseDF:
+    ) -> "AlicatBaseDF":
         parts = raw_line.strip().split()
         if len(parts) < 2:
             raise ValueError(f"Invalid Alicat response (too short): {raw_line!r}")
@@ -87,6 +85,8 @@ class AlicatBaseDF(utils.PeriphDF):
         data = cls(unit_id=unit_id, pressure=pressure)
 
         if data.pressure is not None:
+            if isinstance(data.pressure, str):
+                data.pressure = float(data.pressure)
             data.pressure = convert_to_pa(data.pressure, pressure_unit)
         return data
 
@@ -105,9 +105,9 @@ class AlicatBaseDF(utils.PeriphDF):
         for name in names:
             try:
                 val = gauss(getattr(self, name), getattr(self, name) * 0.05)
+                setattr(self, name, round(val, 2))
             except ValueError:
-                val = None
-            setattr(self, name, round(val, 2))
+                setattr(self, name, None)
 
     def dump_line(self):
         data = [v for k, v in asdict(self).items() if k != "time"]
@@ -117,17 +117,17 @@ class AlicatBaseDF(utils.PeriphDF):
 
 @dataclass(kw_only=True)
 class AlicatMassFlowDF(AlicatBaseDF):
-    temp: Optional[float] = None
-    vflow: Optional[float] = None
-    mflow: Optional[float] = None
-    setpoint: Optional[float] = None
-    gas: Optional[str] = None
-    status: Optional[str] = None
+    temp: float | None = None
+    vflow: float | None = None
+    mflow: float | None = None
+    setpoint: float | None = None
+    gas: str | None = None
+    status: str | None = None
 
     @classmethod
     def parse_line(
         cls, raw_line: str, pressure_unit: AlicatPressureUnits
-    ) -> AlicatMassFlowDF:
+    ) -> "AlicatMassFlowDF":
         parts = raw_line.strip().split()
         if len(parts) < 4:
             raise ValueError(f"Invalid Alicat response (too short): {raw_line!r}")
@@ -136,10 +136,18 @@ class AlicatMassFlowDF(AlicatBaseDF):
 
         return cls(
             **asdict(base),  # unit_id, pressure, time
-            temp=parts[2] if len(parts) > 2 and parts[2] != "" else None,
-            vflow=parts[3] if len(parts) > 3 and parts[3] != "" else None,
-            mflow=parts[4] if len(parts) > 4 and parts[4] != "" else None,
-            setpoint=parts[5] if len(parts) > 5 and parts[5] != "" else None,
+            temp=utils.safe_float(parts[2])
+            if len(parts) > 2 and parts[2] != ""
+            else None,
+            vflow=utils.safe_float(parts[3])
+            if len(parts) > 3 and parts[3] != ""
+            else None,
+            mflow=utils.safe_float(parts[4])
+            if len(parts) > 4 and parts[4] != ""
+            else None,
+            setpoint=utils.safe_float(parts[5])
+            if len(parts) > 5 and parts[5] != ""
+            else None,
             gas=parts[6] if len(parts) > 7 else None,
             status=parts[7] if len(parts) >= 8 else None,
         )
@@ -159,14 +167,14 @@ class AlicatMassFlowDF(AlicatBaseDF):
             temp=round(gauss(20), 2),
             vflow=round(uniform(40, 50), 2),
             mflow=round(gauss(1000), 2),
-            setpoint=1000,
+            setpoint=1000.0,
             gas="Air",
             status="HLD",
         )
 
     def mutate(self, exclude=["setpoint", "mflow"]):
         super().mutate(exclude)
-        if self.setpoint > 0:
+        if self.setpoint is not None and self.setpoint > 0:
             self.mflow = abs(round(gauss(self.setpoint, sigma=0.2), 2))
         else:
             self.mflow = 0.0
@@ -183,7 +191,7 @@ class AlicatBase:
         self.unit_id = unit_id
         self.pressure_unit = pressure_unit
 
-    async def fetch_data(self) -> str:
+    async def fetch_data(self) -> str | None:
         line = await self.serial.query(f"{self.unit_id}{AlicatCommands.POLL_DATA}\r")
         return line
 
@@ -220,14 +228,18 @@ class AlicatBase:
 class AlicatFlowController(AlicatBase):
     async def fetch_data(self) -> AlicatMassFlowDF:
         line = await super().fetch_data()
+        if line is None:
+            return AlicatMassFlowDF(unit_id=self.unit_id)
         logger.debug(f"Received line {line}")
         try:
             data = AlicatMassFlowDF.parse_line(line, self.pressure_unit)
             return data
         except Exception as e:
             logger.error(f'Unable to parse line {line}: "{e}"')
+            return AlicatMassFlowDF(unit_id=self.unit_id)
 
     async def write_gas(self):
+        # TODO: implement
         pass
 
     async def write_setpoint(
@@ -245,7 +257,7 @@ class AlicatFlowController(AlicatBase):
     @classmethod
     def mock_command_map(cls, command: str):
         parsed_line = cls.parse_command(command)
-        unit_id = parsed_line.get("id")
+        unit_id = parsed_line.get("id", "X")
 
         data = cls._mock_load_data(unit_id)
         if not data:
@@ -256,8 +268,8 @@ class AlicatFlowController(AlicatBase):
 
         cmd = (
             ""
-            if not parsed_line.get("cmd").split()
-            else parsed_line.get("cmd").split()[0]
+            if not parsed_line.get("cmd", "").split()
+            else parsed_line.get("cmd", "").split()[0]
         )
         line = None
 
@@ -267,7 +279,7 @@ class AlicatFlowController(AlicatBase):
 
             case AlicatCommands.QUERY_SETPOINT:
                 try:
-                    new_setpoint = float(parsed_line.get("cmd").split()[1])
+                    new_setpoint = float(parsed_line.get("cmd", "").split()[1])
                 except TypeError:
                     logger.error("Setpoint must be numeric")
                     return
@@ -296,18 +308,21 @@ class AlicatFlowController(AlicatBase):
 class AlicatDiffPressure(AlicatBase):
     async def fetch_data(self) -> AlicatBaseDF:
         line = await super().fetch_data()
+        if line is None:
+            return AlicatBaseDF(unit_id=self.unit_id)
         logger.debug(f"Received line {line}")
         try:
             data = AlicatBaseDF.parse_line(line, self.pressure_unit)
             return data
         except Exception as e:
             logger.error(f'Unable to parse line {line}: "{e}"')
+            return AlicatBaseDF(unit_id=self.unit_id)
 
     @classmethod
     def mock_command_map(cls, command: str):
         parsed_line = cls.parse_command(command)
         cmd = parsed_line.get("cmd")
-        unit_id = parsed_line.get("id")
+        unit_id = parsed_line.get("id", "X")
 
         data = cls._mock_load_data(unit_id)
         if not data:
