@@ -36,19 +36,19 @@ class AlicatCommands(StrEnum):
     TARE_PRESSURE = "P"
 
 
-def convert_to_pa(val: float, input_units: AlicatPressureUnits):
+def convert_to_pa(val: float, input_units: AlicatPressureUnits) -> float | None:
     if val is None:
         return
 
     match input_units:
         case AlicatPressureUnits.KPA:
-            return int(val * 1000)
+            return val * 1000
         case AlicatPressureUnits.MPA:
-            return int(val * 1e6)
+            return val * 1e6
         case AlicatPressureUnits.PSI:
-            return int(val * 6894.757)
+            return val * 6894.757
         case AlicatPressureUnits.INH2O:
-            return int(val * 248.84)
+            return val * 248.84
         case _:
             return val
 
